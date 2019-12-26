@@ -134,9 +134,8 @@ kern_pgdir[PDX(UVPT)] = PADDR(kern_pgdir) | PTE_U | PTE_P;
 接下来就是补全自身缺少的代码了。根据之前的提示，这里给出代码其实不算困难，`pages`代表页表项的数组，需要`npages`个，然后清0就行。
 
 ```c
-pages = (struct PageInfo *)
-    boot_alloc(npages * sizeof(struct PageInfo));   // 分配页标记
-memset(pages, 0, npages * sizeof(struct PageInfo)); //清空
+pages = (struct PageInfo *)boot_alloc(npages * sizeof(struct PageInfo)); // 分配页标记
+memset(pages, 0, npages * sizeof(struct PageInfo));                      //清空
 // PageInfo
 struct PageInfo {
     struct PageInfo *pp_link; //下一个位置
@@ -220,8 +219,8 @@ struct PageInfo *page_alloc(int alloc_flags)
     struct PageInfo *new_page = page_free_list;
     page_free_list = page_free_list->pp_link;
     new_page->pp_link = NULL;
-// 是否清空
-// ALLOC_ZERO = 1
+    // 是否清空
+    // ALLOC_ZERO = 1
     if (alloc_flags & ALLOC_ZERO)
         memset(page2kva(new_page), '\0', PGSIZE);
     return new_page;
@@ -307,151 +306,151 @@ x = (mystery_t)value;
 
 这一题和上一题不一样的是，完全没有入口，所以只能依照注释来完成出题人想要的功能，否则测试就无法通过。既然这样就从`pgdir_walk`开始，因为这个函数是后面实现的支点。
 
-1. 函数`pgdir_walk`
+#### 函数`pgdir_walk`
 
-   这个函数要求的输入是页目录入口，一个虚拟地址和一个设置位，设置位如果位1却不存在的时候自动创建，如果能查找到返回页表项的指针，其他情况返回`NULL`。涉及到页表地址也就是说，后续可以直接对页表进行修改，也返回对应的内容。
+这个函数要求的输入是页目录入口，一个虚拟地址和一个设置位，设置位如果位1却不存在的时候自动创建，如果能查找到返回页表项的指针，其他情况返回`NULL`。涉及到页表地址也就是说，后续可以直接对页表进行修改，也返回对应的内容。
 
-   于是这样就可以知道这个函数有三个东西要考虑：第一是如果这个东西存在，直接返回；第二是如果不存在而且不要求创建，那么就返回空；第三是如果要求创建，那么分配一个位置以后直接返回。
+于是这样就可以知道这个函数有三个东西要考虑：第一是如果这个东西存在，直接返回；第二是如果不存在而且不要求创建，那么就返回空；第三是如果要求创建，那么分配一个位置以后直接返回。
 
-   这里一定要注意的是，代码中操作的都是虚拟地址，但是页表目录和页表中返回的都是物理地址。
+这里一定要注意的是，代码中操作的都是虚拟地址，但是页表目录和页表中返回的都是物理地址。
 
-   ```c
-   pte_t *pgdir_walk(pde_t *pgdir, const void *va, int create)
-   {
-       // 输入：页目录pgdir，虚拟地址va，设置位create
-       // 输出：页表对应指针
-       // #define PDX(la) ((((uintptr_t) (la)) >> 22) & 0x3FF)
-       // #define PTX(la) ((((uintptr_t) (la)) >> 12) & 0x3FF)
-       uint32_t pgdir_idx = PDX(va); // 页目录中的偏移
-       uint32_t pgtab_idx = PTX(va); // 页项中的便宜
-       pte_t *pgtab;
-       // 如果在页目录中存在
-       // #define PTE_ADDR(pte)   ((physaddr_t) (pte) & ~0xFFF)
-       // #define KADDR(pa) _kaddr(__FILE__, __LINE__, pa)
-       if (pgdir[pgdir_idx] & PTE_P)
-           pgtab = KADDR(PTE_ADDR(pgdir[pgdir_idx]));
-       else {
-           // 如果要求没有则创建
-           if (create) {
-               // 注意page_alloc并不新增引用
-               struct PageInfo *new_page = page_alloc(ALLOC_ZERO);
-               if (new_page) {
-                   new_page->pp_ref += 1; // 肯定有引用
-                   pgtab = (pte_t *)page2kva(new_page);
-                   pgdir[pgdir_idx] = PADDR(pgtab)|PTE_P | PTE_W | PTE_U;
-               }
-               else return NULL;
-           }
-           // 反之就啥都查不到了
-           else return NULL;
-       }
-       return &pgtab[pgtab_idx];
-   }
-   ```
+```c
+pte_t *pgdir_walk(pde_t *pgdir, const void *va, int create)
+{
+    // 输入：页目录pgdir，虚拟地址va，设置位create
+    // 输出：页表对应指针
+    // #define PDX(la) ((((uintptr_t) (la)) >> 22) & 0x3FF)
+    // #define PTX(la) ((((uintptr_t) (la)) >> 12) & 0x3FF)
+    uint32_t pgdir_idx = PDX(va); // 页目录中的偏移
+    uint32_t pgtab_idx = PTX(va); // 页项中的便宜
+    pte_t *pgtab;
+    // 如果在页目录中存在
+    // #define PTE_ADDR(pte)   ((physaddr_t) (pte) & ~0xFFF)
+    // #define KADDR(pa) _kaddr(__FILE__, __LINE__, pa)
+    if (pgdir[pgdir_idx] & PTE_P)
+        pgtab = KADDR(PTE_ADDR(pgdir[pgdir_idx]));
+    else {
+        // 如果要求没有则创建
+        if (create) {
+            // 注意page_alloc并不新增引用
+            struct PageInfo *new_page = page_alloc(ALLOC_ZERO);
+            if (new_page) {
+                new_page->pp_ref += 1; // 肯定有引用
+                pgtab = (pte_t *)page2kva(new_page);
+                pgdir[pgdir_idx] = PADDR(pgtab)|PTE_P | PTE_W | PTE_U;
+            }
+            else return NULL;
+        }
+        // 反之就啥都查不到了
+        else return NULL;
+    }
+    return &pgtab[pgtab_idx];
+}
+```
 
-   而且如果进行调试的话，可以发现有这样的输出，可以得到这样的结论：第一，页表的存储内容实际上是4K对齐的，最低3bits存储的是权限；第二，页表项的分配是倒序来的，也就是说是n-1到n-2这个方向；第三，之前的测试占据了一些页表项。
+而且如果进行调试的话，可以发现有这样的输出，可以得到这样的结论：第一，页表的存储内容实际上是4K对齐的，最低3bits存储的是权限；第二，页表项的分配是倒序来的，也就是说是n-1到n-2这个方向；第三，之前的测试占据了一些页表项。
 
-   ```
-   va = 0, PDX(va) = 0, pgdir[PDX(va)] = 0, create = 0
-   va = 0, PDX(va) = 0, pgdir[PDX(va)] = 0, create = 1
-   case3: we need a new one at 0
-   va = 0, PDX(va) = 0, pgdir[PDX(va)] = 0, create = 1
-   case3: we need a new one at f011cff8
-   va = 1000, PDX(va) = 0, pgdir[PDX(va)] = 3ff003, create = 1
-   case 1: pg_table_p = f03ff000, result = f03ff004
-   ...还有很多
-   ```
+```
+va = 0, PDX(va) = 0, pgdir[PDX(va)] = 0, create = 0
+va = 0, PDX(va) = 0, pgdir[PDX(va)] = 0, create = 1
+case3: we need a new one at 0
+va = 0, PDX(va) = 0, pgdir[PDX(va)] = 0, create = 1
+case3: we need a new one at f011cff8
+va = 1000, PDX(va) = 0, pgdir[PDX(va)] = 3ff003, create = 1
+case 1: pg_table_p = f03ff000, result = f03ff004
+...还有很多
+```
 
-2. 函数`boot_map_region`
+#### 函数`boot_map_region`
 
-   第一个函数确实比较困难，这个就简单很多了，就是循环`pgdir_walk()`。
+第一个函数确实比较困难，这个就简单很多了，就是循环`pgdir_walk()`。
 
-   ```c
-   static void boot_map_region
-   (pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm)
-   {
-   pte_t *pgtab;
-       // #define PGNUM(la) (((uintptr_t) (la)) >> 12)
-       size_t pg_num = PGNUM(size);
-       // cprintf("map region size = %d, %d pages\n", size, pg_num);
-       for (size_t i = 0; i < pg_num; i++, va += PGSIZE, pa += PGSIZE)
-       {
-           pgtab = pgdir_walk(pgdir, (void *)va, 1); // 在页表中的哪里
-           if (!pgtab)
-               return;
-           *pgtab = pa | perm | PTE_P; // 重新设定权限
-       }
-   }
-   ```
+```c
+static void boot_map_region 
+    (pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm)
+{
+    pte_t *pgtab;
+    // #define PGNUM(la) (((uintptr_t) (la)) >> 12)
+    size_t pg_num = PGNUM(size);
+    // cprintf("map region size = %d, %d pages\n", size, pg_num);
+    for (size_t i = 0; i < pg_num; i++, va += PGSIZE, pa += PGSIZE)
+    {
+        pgtab = pgdir_walk(pgdir, (void *)va, 1); // 在页表中的哪里
+        if (!pgtab)
+            return;
+        *pgtab = pa | perm | PTE_P; // 重新设定权限
+    }
+}
+```
 
-3. 函数`page_lookup`
+#### 函数`page_lookup`
 
-   第一个函数返回的是页的指针，那这个就要返回这一页是否合法。只不过形式上还是依葫芦画瓢。当然，要可以拿出来。
+第一个函数返回的是页的指针，那这个就要返回这一页是否合法。只不过形式上还是依葫芦画瓢。当然，要可以拿出来。
 
-   ```
-   // kern/pmap.h
-   static inline struct PageInfo *pa2page(physaddr_t pa)
-   {
-       if (PGNUM(pa) >= npages)
-           panic("pa2page called with invalid pa");
-       return &pages[PGNUM(pa)];
-   }
-   struct PageInfo *page_lookup(pde_t *pgdir, void *va, pte_t **pte_store)
-   {
-       pte_t *pgtab = pgdir_walk(pgdir, va, 0); // 不创建，只查找
-       if (!pgtab)
-           return NULL; // 未找到则返回 NULL
-       if (pte_store)
-           *pte_store = pgtab;           // 附加保存一个指向找到的页表的指针
-       // #define PTE_ADDR(pte) ((physaddr_t) (pte) & ~0xFFF)
-       return pa2page(PTE_ADDR(*pgtab)); //  返回页面描述
-   }
-   
-   ```
+```c
+// kern/pmap.h
+static inline struct PageInfo *pa2page(physaddr_t pa)
+{
+    if (PGNUM(pa) >= npages)
+        panic("pa2page called with invalid pa");
+    return &pages[PGNUM(pa)];
+}
+struct PageInfo *page_lookup(pde_t *pgdir, void *va, pte_t **pte_store)
+{
+    pte_t *pgtab = pgdir_walk(pgdir, va, 0); // 不创建，只查找
+    if (!pgtab)
+        return NULL; // 未找到则返回 NULL
+    if (pte_store)
+        *pte_store = pgtab;           // 附加保存一个指向找到的页表的指针
+    // #define PTE_ADDR(pte) ((physaddr_t) (pte) & ~0xFFF)
+    return pa2page(PTE_ADDR(*pgtab)); //  返回页面描述
+}
 
-4. 函数`page_insert`
+```
 
-   本函数顾名思义就是建立映射，输入就是页表入口，页描述结构体指针，线性地址，权限设置。和`boot_map_region`一样可以直接通过指针修改权限内容。
+#### 函数`page_insert`
 
-   ```c
-   int page_insert(pde_t *pgdir, struct PageInfo *pp, void *va, int perm)
-   {
-       // 如果没有则需要创建
-       pte_t *pgtab = pgdir_walk(pgdir, va, 1);
-       if (!pgtab)
-           return -E_NO_MEM;
-       pp->pp_ref++;
-       // 如果已经存在
-       if (*pgtab & PTE_P)
-           page_remove(pgdir, va);
-       *pgtab = page2pa(pp) | perm | PTE_P;
-       return 0;
-   }
-   ```
+本函数顾名思义就是建立映射，输入就是页表入口，页描述结构体指针，线性地址，权限设置。和`boot_map_region`一样可以直接通过指针修改权限内容。
 
-5. 函数`page_remove`
+```c
+int page_insert(pde_t *pgdir, struct PageInfo *pp, void *va, int perm)
+{
+    // 如果没有则需要创建
+    pte_t *pgtab = pgdir_walk(pgdir, va, 1);
+    if (!pgtab)
+        return -E_NO_MEM;
+    pp->pp_ref++;
+    // 如果已经存在
+    if (*pgtab & PTE_P)
+        page_remove(pgdir, va);
+    *pgtab = page2pa(pp) | perm | PTE_P;
+    return 0;
+}
+```
 
-   再接下来就是`page_remove`，传入参数就是页表地址和虚拟地址。这个时候注意提示，操作系统不光光有页表需要维护。同样这里可以看到的是`page_lookup`的第三参数的取出用途了。
+#### 函数`page_remove`
 
-   ```c
-   void page_decref(struct PageInfo *pp)
-   {
-       if (--pp->pp_ref == 0)
-           page_free(pp);
-   }
-   void page_remove(pde_t *pgdir, void *va)
-   {
-       // Fill this function in
-       pte_t *pgtab;
-       pte_t **pte_store = &pgtab;
-       struct PageInfo *pInfo = page_lookup(pgdir, va, pte_store);
-       if (!pInfo)
-           return;
-       page_decref(pInfo);
-       tlb_invalidate(pgdir, va); // 通知tlb失效。
-       *pgtab = 0;                // 清空，防止无意的读取。
-   }
-   ```
+再接下来就是`page_remove`，传入参数就是页表地址和虚拟地址。这个时候注意提示，操作系统不光光有页表需要维护。同样这里可以看到的是`page_lookup`的第三参数的取出用途了。
+
+```c
+void page_decref(struct PageInfo *pp)
+{
+    if (--pp->pp_ref == 0)
+        page_free(pp);
+}
+void page_remove(pde_t *pgdir, void *va)
+{
+    // Fill this function in
+    pte_t *pgtab;
+    pte_t **pte_store = &pgtab;
+    struct PageInfo *pInfo = page_lookup(pgdir, va, pte_store);
+    if (!pInfo)
+        return;
+    page_decref(pInfo);
+    tlb_invalidate(pgdir, va); // 通知tlb失效。
+    *pgtab = 0;                // 清空，防止无意的读取。
+}
+```
 
 最后检测一下，可以得到这样的结果：
 
